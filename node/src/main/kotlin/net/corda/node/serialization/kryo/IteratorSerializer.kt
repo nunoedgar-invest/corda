@@ -8,6 +8,8 @@ import java.lang.reflect.Field
 
 class IteratorSerializer(private val serializer : Serializer<Iterator<*>>) : Serializer<Iterator<*>>(false, false) {
 
+    private val fieldCache: MutableMap<Pair<Class<*>, String>, Field?> = mutableMapOf()
+
     override fun write(kryo: Kryo, output: Output, obj: Iterator<*>) {
         serializer.write(kryo, output, obj)
     }
@@ -20,31 +22,39 @@ class IteratorSerializer(private val serializer : Serializer<Iterator<*>>) : Ser
     private fun <T> fixIterator(iterator: Iterator<T>) : Iterator<T> {
 
         // Find the outer list
-        val outerClassField = findField(iterator, "this\$0") ?: return iterator
-        outerClassField.isAccessible = true
-        val outerClass = outerClassField.get(iterator) ?: return iterator
+        val iterableReferenceField = cachedField(iterator.javaClass, "this\$0") ?: return iterator
+        val iterableInstance = iterableReferenceField.get(iterator) ?: return iterator
 
         // Get the modCount of the outer list
-        val modCountField = findField(outerClass, "modCount") ?: return iterator
-        modCountField.isAccessible = true
-        val modCountValue = modCountField.getInt(outerClass)
+        val modCountField = cachedField(iterableInstance.javaClass, "modCount") ?: return iterator
+        val modCountValue = modCountField.getInt(iterableInstance)
 
         // Set expectedModCount of iterator
-        val expectedModCountField = findField(iterator, "expectedModCount") ?: return iterator
-        expectedModCountField.isAccessible = true
+        val expectedModCountField = cachedField(iterator.javaClass, "expectedModCount") ?: return iterator
         expectedModCountField.setInt(iterator, modCountValue)
 
         return iterator
     }
 
     /**
+     * Keep a cache of Field objects so we can reuse them
+     */
+    private fun cachedField(clazz: Class<*>, fieldName: String): Field? {
+        val key = Pair(clazz, fieldName)
+        if (!fieldCache.containsKey(key)) {
+            fieldCache[key] = findField(clazz, fieldName)?.apply { isAccessible = true }
+        }
+        return fieldCache[key]
+    }
+
+    /**
      * Find field in clazz or any superclass
      */
-    private fun findField(obj: Any, fieldName: String, clazz: Class<*> = obj.javaClass): Field? {
+    private fun findField(clazz: Class<*>, fieldName: String): Field? {
         return clazz.declaredFields.firstOrNull { x -> x.name == fieldName } ?: when {
             clazz.superclass != null -> {
                 // Look in superclasses
-                findField(obj, fieldName, clazz.superclass)
+                findField(clazz.superclass, fieldName)
             }
             else -> null // Not found
         }

@@ -18,6 +18,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.Parameterized
 import org.junit.runners.Parameterized.Parameters
+import java.util.*
+import kotlin.collections.ArrayList
+import kotlin.collections.HashMap
+import kotlin.collections.HashSet
+import kotlin.collections.LinkedHashMap
+import kotlin.collections.LinkedHashSet
 
 @RunWith(Parameterized::class)
 class ArrayListItrConcurrentModificationException(private val compression: CordaSerializationEncoding?) {
@@ -46,22 +52,69 @@ class ArrayListItrConcurrentModificationException(private val compression: Corda
 
     @Test
     fun `ArrayList iterator can checkpoint without error`() {
+        runTestWithCollection(ArrayList())
+    }
 
-        data class TestCheckpoint(val list: List<Int>, val iterator: Iterator<Int>)
+    @Test
+    fun `HashSet iterator can checkpoint without error`() {
+        runTestWithCollection(HashSet())
+    }
 
-        val list = ArrayList<Int>(10)
-        (1..1000).forEach { i -> list.add(i) }
+    @Test
+    fun `LinkedHashSet iterator can checkpoint without error`() {
+        runTestWithCollection(LinkedHashSet())
+    }
 
-        val iterator = list.iterator()
+    @Test
+    fun `HashMap iterator can checkpoint without error`() {
+        runTestWithCollection(HashMap())
+    }
+
+    @Test
+    fun `LinkedHashMap iterator can checkpoint without error`() {
+        runTestWithCollection(LinkedHashMap())
+    }
+
+    @Test
+    fun `LinkedList iterator can checkpoint without error`() {
+        runTestWithCollection(LinkedList())
+    }
+
+
+    private data class TestCheckpoint<C,I>(val list: C, val iterator: I)
+
+    private fun runTestWithCollection(collection: MutableCollection<Int>) {
+
+        (1..100).forEach { i -> collection.add(i) }
+
+        val iterator = collection.iterator()
         iterator.next()
 
-        val checkpoint = TestCheckpoint(list, iterator)
+        val checkpoint = TestCheckpoint(collection, iterator)
 
         val serializedBytes = checkpoint.checkpointSerialize(context)
         val deserializedCheckpoint = serializedBytes.checkpointDeserialize(context)
 
-        assertThat(deserializedCheckpoint.list).isEqualTo(list)
+        assertThat(deserializedCheckpoint.list).isEqualTo(collection)
         assertThat(deserializedCheckpoint.iterator.next()).isEqualTo(2)
         assertThat(deserializedCheckpoint.iterator.hasNext()).isTrue()
     }
+
+    private fun runTestWithCollection(collection: MutableMap<Int, Int>) {
+
+        (1..100).forEach { i -> collection[i] = i }
+
+        val iterator = collection.iterator()
+        iterator.next()
+
+        val checkpoint = TestCheckpoint(collection, iterator)
+
+        val serializedBytes = checkpoint.checkpointSerialize(context)
+        val deserializedCheckpoint = serializedBytes.checkpointDeserialize(context)
+
+        assertThat(deserializedCheckpoint.list).isEqualTo(collection)
+        assertThat(deserializedCheckpoint.iterator.next().key).isEqualTo(2)
+        assertThat(deserializedCheckpoint.iterator.hasNext()).isTrue()
+    }
+
 }
